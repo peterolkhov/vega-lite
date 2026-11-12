@@ -526,7 +526,8 @@ jobs:
                   p = Path(os.fsdecode(raw_path))
                   if mode == b'120000':
                       assert p.is_symlink()
-                      data = os.fsencode(os.readlink(p))
+                      target = os.readlink(p)
+                      data = os.fsencode(target.replace(os.sep, '/') if os.name == 'nt' else target)
                   else:
                       assert mode in (b'100644', b'100755') and p.is_file() and not p.is_symlink()
                       if os.name != 'nt':
@@ -616,7 +617,7 @@ jobs:
           import hashlib, json, os
           from pathlib import Path
           p = Path(os.environ["NEW95_PACKET"])
-          expected = {'fix.patch': 'e8ca38cf43a1d45da07a911f171c975b5c5edf225aa85c8d69025a8673bcf7c4', 'publisher-manifest.json': 'bd1aac774119f7cbfc03602d6c1dac6ba3e6d6c263a9137bb9e90fd9a1121a2b', 'frozen-public-probe.mjs': '6bd2cba6b62a97e2781b7557d617669d7e24d0e55a9afa5bc43b22e511a22e90', 'hosted-driver.py': 'e9caa0dc4ddfb7c9dcb2623dc317064dcae2bf7a3ea6f4e819ef10b6e776599d', 'cli-matrix-driver.py': 'a73c7694274cae060b0ec8e349842de93d8350d580eba628524f1bea516e4e47'}
+          expected = {'fix.patch': 'e8ca38cf43a1d45da07a911f171c975b5c5edf225aa85c8d69025a8673bcf7c4', 'publisher-manifest.json': 'bd1aac774119f7cbfc03602d6c1dac6ba3e6d6c263a9137bb9e90fd9a1121a2b', 'frozen-public-probe.mjs': '6bd2cba6b62a97e2781b7557d617669d7e24d0e55a9afa5bc43b22e511a22e90', 'hosted-driver.py': 'e9caa0dc4ddfb7c9dcb2623dc317064dcae2bf7a3ea6f4e819ef10b6e776599d', 'cli-matrix-driver.py': '7d48eeaf9fcd2e75d8db1bdbd76bea434a72bd19c1aed7b6baec356885bd399b'}
           for name, expected_hash in expected.items():
               assert hashlib.sha256((p / name).read_bytes()).hexdigest() == expected_hash, name
           print("NEW95_FROZEN_PACKET " + json.dumps(expected, sort_keys=True), flush=True)
