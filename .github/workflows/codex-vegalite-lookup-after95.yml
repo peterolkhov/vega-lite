@@ -11,8 +11,6 @@ jobs:
     timeout-minutes: 90
     env:
       CI: 'true'
-      NEW95_PACKET: ${{ runner.temp }}/new95-packet
-      NEW95_RECEIPTS: ${{ runner.temp }}/new95-native-receipts
     steps:
       - name: Preserve exact Git checkout bytes
         shell: bash
@@ -27,6 +25,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.11.0
+      - name: Initialize runner temporary paths
+        shell: bash
+        run: |
+          echo "NEW95_PACKET=$RUNNER_TEMP/new95-packet" >> "$GITHUB_ENV"
+          echo "NEW95_RECEIPTS=$RUNNER_TEMP/new95-native-receipts" >> "$GITHUB_ENV"
       - name: Create packet directory
         shell: bash
         run: mkdir -p "$NEW95_PACKET"
@@ -612,8 +615,6 @@ jobs:
     timeout-minutes: 45
     env:
       CI: 'true'
-      NEW95_PACKET: ${{ runner.temp }}/new95-packet
-      NEW95_RECEIPTS: ${{ runner.temp }}/new95-cli-receipts
     steps:
       - name: Preserve exact Git checkout bytes
         shell: bash
@@ -628,6 +629,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.11.0
+      - name: Initialize runner temporary paths
+        shell: bash
+        run: |
+          echo "NEW95_PACKET=$RUNNER_TEMP/new95-packet" >> "$GITHUB_ENV"
+          echo "NEW95_RECEIPTS=$RUNNER_TEMP/new95-cli-receipts" >> "$GITHUB_ENV"
       - name: Create packet directory
         shell: bash
         run: mkdir -p "$NEW95_PACKET"
