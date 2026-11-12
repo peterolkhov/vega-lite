@@ -1,0 +1,468 @@
+name: Vega-Lite guarded coverage and aggregate completion105
+'on':
+  workflow_dispatch: null
+  push:
+    branches: [codex/verify-vegalite-completion105]
+permissions:
+  contents: read
+jobs:
+  completion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: 'true'
+      PYTHONIOENCODING: utf-8
+      NO_COLOR: '1'
+    steps:
+    - name: Preserve exact Git checkout bytes
+      shell: bash
+      run: git config --global core.autocrlf false
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        repository: vega/vega-lite
+        ref: 220ee2c74652d686a4baf01b2d1a00c25644bd48
+        path: target
+        fetch-depth: 1
+        persist-credentials: false
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: 24.11.0
+    - name: Initialize owned runner paths
+      shell: bash
+      run: |-
+        echo "NEW95_PACKET=$RUNNER_TEMP/new105-packet" >> "$GITHUB_ENV"
+        echo "NEW95_RECEIPTS=$RUNNER_TEMP/new105-receipts" >> "$GITHUB_ENV"
+        mkdir -p "$RUNNER_TEMP/new105-packet" "$RUNNER_TEMP/new105-receipts"
+    - name: Materialize fix.patch
+      shell: bash
+      run: "cat > \"$NEW95_PACKET/fix.patch\" <<'NEW105_PAYLOAD_0'\n--- a/src/compile/data/lookup.ts\n+++ b/src/compile/data/lookup.ts\n\
+        @@ -103,7 +103,7 @@\n       key: this.transform.from.key,\n       fields: [this.transform.lookup],\n       ...foreign,\n\
+        -      ...(this.transform.default ? {default: this.transform.default} : {}),\n+      ...(this.transform.default !==\
+        \ undefined ? {default: this.transform.default} : {}),\n     };\n   }\n }\n--- a/test/compile/data/lookup.test.ts\n\
+        +++ b/test/compile/data/lookup.test.ts\n@@ -76,6 +76,54 @@\n       key: 'name',\n       fields: ['person'],\n    \
+        \   as: ['foo'],\n+    });\n+  });\n+\n+  describe.each(['flat', 'nested'])('%s lookup defaults', (form) => {\n+ \
+        \   it.each([0, false, '', null, 7, 'unknown'])('should preserve default %j', (defaultValue) => {\n+      const lookup\
+        \ = new LookupNode(\n+        null,\n+        {\n+          lookup: 'person',\n+          from: {\n+            data:\
+        \ {url: 'data/lookup_people.csv'},\n+            key: 'name',\n+            ...(form === 'flat' ? {fields: ['age']}\
+        \ : {}),\n+          },\n+          as: 'foo',\n+          default: defaultValue,\n+        },\n+        'lookup_0',\n\
+        +      );\n+\n+      expect(lookup.assemble()).toEqual({\n+        type: 'lookup',\n+        from: 'lookup_0',\n+\
+        \        key: 'name',\n+        fields: ['person'],\n+        ...(form === 'flat' ? {values: ['age']} : {}),\n+  \
+        \      as: ['foo'],\n+        default: defaultValue,\n+      });\n+    });\n+\n+    it('should omit an undefined default',\
+        \ () => {\n+      const lookup = new LookupNode(\n+        null,\n+        {\n+          lookup: 'person',\n+    \
+        \      from: {\n+            data: {url: 'data/lookup_people.csv'},\n+            key: 'name',\n+            ...(form\
+        \ === 'flat' ? {fields: ['age']} : {}),\n+          },\n+          as: 'foo',\n+          default: undefined,\n+ \
+        \       },\n+        'lookup_0',\n+      );\n+\n+      expect(lookup.assemble()).not.toHaveProperty('default');\n\
+        \     });\n   });\n \nNEW105_PAYLOAD_0\n"
+    - name: Materialize publisher-manifest.json
+      shell: bash
+      run: |
+        cat > "$NEW95_PACKET/publisher-manifest.json" <<'NEW105_PAYLOAD_1'
+        {
+          "base_pin": "220ee2c74652d686a4baf01b2d1a00c25644bd48",
+          "base_tree": "d1067e4185fbea511ea89e789ff6e3cf8803a17e",
+          "files": [
+            {
+              "path": "src/compile/data/lookup.ts",
+              "source_file": "source-files/src__compile__data__lookup.ts",
+              "mode": "100644",
+              "original_git_blob": "5caba2da5e739180abee73d42b3b3561ee24751f",
+              "original_sha256": "4df54decb01bf3da34d498c2ef62c01fe0d3598dab2f95e2aa284562531f74fe",
+              "after_git_blob": "951881afa89f68661e461d0527f87dd40d323130",
+              "after_sha256": "4df24d183d7601b0a2219c81269781fafc9250911684b7378ee34e327f133188"
+            },
+            {
+              "path": "test/compile/data/lookup.test.ts",
+              "source_file": "source-files/test__compile__data__lookup.test.ts",
+              "mode": "100644",
+              "original_git_blob": "0cf4536f5134264ce8a986b54ffdd8af513833fe",
+              "original_sha256": "74e04180231e0180cb292fa030bf72d0673fe45d032b450b0f0e1dc1ff8b8e31",
+              "after_git_blob": "27919ed0506d93b54fdec5e91d1a8615d693c62d",
+              "after_sha256": "c56705202ad966a76757527e59242c01ba23de361d96e255fa8ee96205a4ca94"
+            }
+          ],
+          "candidate_tree": "e32e84a62f8138bad309be5bb28d952b929ecf0b"
+        }
+        NEW105_PAYLOAD_1
+    - name: Materialize frozen-public-probe.mjs
+      shell: bash
+      run: |
+        cat > "$NEW95_PACKET/frozen-public-probe.mjs" <<'NEW105_PAYLOAD_2'
+        // UNEXECUTED: public whole-project compiler plus native Vega dataflow only.
+        import {writeFileSync} from 'node:fs';
+        import {compile} from './build/index.js';
+        import {View, parse, version as vegaVersion} from 'vega';
+
+        const cases = [
+          {name: 'zero', supplied: true, value: 0, expected: 0},
+          {name: 'false', supplied: true, value: false, expected: false},
+          {name: 'empty-string', supplied: true, value: '', expected: ''},
+          {name: 'explicit-null-control', supplied: true, value: null, expected: null},
+          {name: 'omitted-control', supplied: false, expected: null},
+          {name: 'nonzero-control', supplied: true, value: 7, expected: 7},
+          {name: 'string-control', supplied: true, value: 'unknown', expected: 'unknown'},
+        ];
+        const report = {status: 'infrastructure-error', node: process.version, vegaVersion, cases: [], checks: []};
+        function check(name, pass, observed, expected) {
+          report.checks.push({name, pass, observed, expected});
+        }
+        try {
+          for (const form of ['flat', 'nested']) {
+            for (const item of cases) {
+              const transform = {
+                lookup: 'id',
+                from: {
+                  data: {values: [{id: 'matched', score: 42}]},
+                  key: 'id',
+                  ...(form === 'flat' ? {fields: ['score']} : {}),
+                },
+                as: form === 'flat' ? ['got'] : 'got',
+                ...(item.supplied ? {default: item.value} : {}),
+              };
+              const input = {
+                data: {values: [{id: 'matched'}, {id: 'missing'}]},
+                transform: [transform],
+                mark: 'text',
+                encoding: {text: {field: 'id', type: 'nominal'}},
+              };
+              const {spec} = compile(input);
+              const lookupSources = spec.data.filter(d => (d.transform ?? []).some(t => t.type === 'lookup'));
+              if (lookupSources.length !== 1) throw new Error('Expected exactly one actual compiled lookup dataset');
+              const source = lookupSources[0];
+              const lookups = source.transform.filter(t => t.type === 'lookup');
+              if (lookups.length !== 1) throw new Error('Expected exactly one actual compiled lookup transform');
+              const emitted = lookups[0];
+              const label = `${form}/${item.name}`;
+              if (item.supplied && item.value !== null) {
+                check(`${label}/compiler-preserves-default`,
+                  Object.hasOwn(emitted, 'default') && Object.is(emitted.default, item.value),
+                  {hasDefault: Object.hasOwn(emitted, 'default'), value: emitted.default ?? null},
+                  {hasDefault: true, value: item.value});
+              } else {
+                check(`${label}/compiler-null-control`, !Object.hasOwn(emitted, 'default') || emitted.default === null,
+                  {hasDefault: Object.hasOwn(emitted, 'default'), value: emitted.default ?? null}, 'absent or null');
+              }
+              const view = new View(parse(spec), {renderer: 'none'});
+              let rows;
+              try {
+                await view.runAsync();
+                rows = view.data(source.name).map(d => ({id: d.id, got: d.got}));
+              } finally {
+                view.finalize();
+              }
+              if (rows.length !== 2 || !rows.some(d => d.id === 'matched') || !rows.some(d => d.id === 'missing')) {
+                throw new Error('Native dataflow did not retain both ordinary input rows');
+              }
+              const match = rows.find(d => d.id === 'matched').got;
+              const missing = rows.find(d => d.id === 'missing').got;
+              check(`${label}/matched-control`, form === 'flat' ? match === 42 : match?.id === 'matched' && match?.score === 42,
+                match, form === 'flat' ? 42 : {id: 'matched', score: 42});
+              check(`${label}/native-fallback`, Object.is(missing, item.expected), missing, item.expected);
+              report.cases.push({label, input, emittedLookup: emitted, lookupDataset: source.name, nativeRows: rows});
+            }
+          }
+          report.failures = report.checks.filter(c => !c.pass).map(c => c.name);
+          report.status = report.failures.length ? 'product-mismatch' : 'all-controls-and-contracts-pass';
+          process.exitCode = report.failures.length ? 1 : 0;
+        } catch (error) {
+          report.error = {name: error.name, message: error.message, stack: error.stack};
+          process.exitCode = 2;
+        } finally {
+          const raw = JSON.stringify(report, null, 2);
+          writeFileSync(process.env.NEW90_REPORT, raw + '\n');
+          console.log('NEW90_RAW_JSON_BEGIN\n' + raw + '\nNEW90_RAW_JSON_END');
+        }
+        NEW105_PAYLOAD_2
+    - name: Materialize completion-driver.py
+      shell: bash
+      run: |
+        cat > "$NEW95_PACKET/completion-driver.py" <<'NEW105_PAYLOAD_3'
+        """UNEXECUTED hosted-only coverage comparison and literal aggregate completion; no local target imports."""
+        import base64
+        import zlib
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import stat
+        import shutil
+        import subprocess
+        import sys
+        import time
+
+        PIN = '220ee2c74652d686a4baf01b2d1a00c25644bd48'
+        BASE_TREE = 'd1067e4185fbea511ea89e789ff6e3cf8803a17e'
+        CANDIDATE_TREE = 'e32e84a62f8138bad309be5bb28d952b929ecf0b'
+        PROBE_HASH = '6bd2cba6b62a97e2781b7557d617669d7e24d0e55a9afa5bc43b22e511a22e90'
+        PACKET = Path(os.environ['NEW95_PACKET']).resolve()
+        OUT = Path(os.environ['NEW95_RECEIPTS']).resolve()
+        OUT.mkdir(parents=True, exist_ok=True)
+        EXPECTED_TREE = BASE_TREE
+        RECEIPTS = {'pin': PIN, 'base_tree': BASE_TREE, 'candidate_tree': CANDIDATE_TREE, 'commands': [], 'guards': []}
+        NODE_PATH = Path(shutil.which('node')).resolve()
+        NODE_HASH = hashlib.sha256(NODE_PATH.read_bytes()).hexdigest()
+        PACKET_HASHES = {str(path.relative_to(PACKET)): hashlib.sha256(path.read_bytes()).hexdigest()
+                         for path in sorted(PACKET.rglob('*')) if path.is_file()}
+        RECEIPTS['node_executable'] = {'path': str(NODE_PATH), 'sha256': NODE_HASH}
+        RECEIPTS['packet_sha256'] = PACKET_HASHES
+
+
+        def git(*args):
+            return subprocess.check_output(['git', *args])
+
+
+        def digest(records):
+            result = hashlib.sha256()
+            count = total = 0
+            for name, mode, data in records:
+                for part in (name, mode, str(len(data)).encode(), data):
+                    result.update(len(part).to_bytes(8, 'big'))
+                    result.update(part)
+                count += 1
+                total += len(data)
+            return {'sha256': result.hexdigest(), 'files': count, 'bytes': total}
+
+
+        def guard(label):
+            assert hashlib.sha256(NODE_PATH.read_bytes()).hexdigest() == NODE_HASH
+            assert {str(path.relative_to(PACKET)): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in sorted(PACKET.rglob('*')) if path.is_file()} == PACKET_HASHES
+            assert git('rev-parse', 'HEAD').decode().strip() == PIN
+            assert git('rev-parse', 'HEAD^{tree}').decode().strip() == BASE_TREE
+            assert git('write-tree').decode().strip() == EXPECTED_TREE
+            subprocess.run(['git', 'diff', '--exit-code', '--no-ext-diff'], check=True)
+            index = git('ls-files', '--stage', '-z')
+            records = []
+            for entry in index.split(b'\0'):
+                if not entry:
+                    continue
+                meta, raw_path = entry.split(b'\t', 1)
+                mode, blob, stage = meta.split()
+                assert stage == b'0'
+                path = Path(os.fsdecode(raw_path))
+                if mode == b'120000':
+                    assert path.is_symlink()
+                    data = os.fsencode(os.readlink(path))
+                else:
+                    assert mode in (b'100644', b'100755')
+                    assert path.is_file() and not path.is_symlink()
+                    assert bool(path.stat().st_mode & stat.S_IXUSR) == (mode == b'100755')
+                    data = path.read_bytes()
+                actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest().encode()
+                assert actual == blob, 'Tracked bytes differ from pinned index: ' + str(path)
+                records.append((raw_path, mode, data))
+            value = {'label': label, 'tree': EXPECTED_TREE, 'tracked': digest(records), 'index_sha256': hashlib.sha256(index).hexdigest()}
+            RECEIPTS['guards'].append(value)
+            print('NEW95_SOURCE_GUARD ' + json.dumps(value), flush=True)
+            return value
+
+
+        def encoded_raw(label, raw):
+            packed = base64.b64encode(zlib.compress(raw, 9)).decode('ascii')
+            print('NEW105_RAW_BEGIN ' + json.dumps({'name': label, 'bytes': len(raw),
+                  'sha256': hashlib.sha256(raw).hexdigest(), 'encoding': 'zlib-base64'}), flush=True)
+            for offset in range(0, len(packed), 12000):
+                print('NEW105_RAW_CHUNK ' + label + ' ' + packed[offset:offset + 12000], flush=True)
+            print('NEW105_RAW_END ' + label, flush=True)
+
+
+        def execution_snapshot():
+            all_records, immutable, dependency_inputs, generated_cache, cache_inventory = [], [], [], [], []
+            for path in sorted([Path('.new90-before.mjs'), *Path('build').rglob('*'), *Path('node_modules').rglob('*')]):
+                if path.is_symlink():
+                    record = (os.fsencode(path), b'link', os.fsencode(os.readlink(path)))
+                elif path.is_file():
+                    record = (os.fsencode(path), b'file', path.read_bytes())
+                else:
+                    continue
+                all_records.append(record)
+                # Vite's generated results/config cache is recorded, but is an expected test output.
+                if path.parts[:2] in (('node_modules', '.vite'), ('node_modules', '.vite-temp')):
+                    generated_cache.append(record)
+                    cache_inventory.append({'path': str(path), 'mode': record[1].decode(),
+                        'bytes': len(record[2]), 'sha256': hashlib.sha256(record[2]).hexdigest()})
+                else:
+                    immutable.append(record)
+                    if path.parts[0] == 'node_modules' or path.name == '.new90-before.mjs':
+                        dependency_inputs.append(record)
+            return {'whole': digest(all_records), 'immutable_runtime': digest(immutable),
+                    'dependency_inputs': digest(dependency_inputs),
+                    'generated_vite_cache': digest(generated_cache), 'cache_inventory': cache_inventory}
+
+
+        def run(name, argv, timeout=600, stdin=None, stable=True):
+            guard('before-' + name)
+            before = execution_snapshot()
+            print('NEW105_EXECUTION_BEFORE ' + name + ' ' + json.dumps(before), flush=True)
+            started = time.time()
+            path = OUT / (name + '.log')
+            with path.open('wb') as stream:
+                try:
+                    result = subprocess.run(argv, input=stdin, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout)
+                    code = result.returncode
+                except subprocess.TimeoutExpired:
+                    code = 124
+            raw = path.read_bytes()
+            after = execution_snapshot()
+            value = {'name': name, 'argv': argv, 'exit_code': code, 'seconds': round(time.time() - started, 3),
+                     'log_sha256': hashlib.sha256(raw).hexdigest(), 'log_bytes': len(raw),
+                     'runtime_before': before, 'runtime_after': after,
+                     'requires_immutable_runtime': stable}
+            RECEIPTS['commands'].append(value)
+            print('NEW105_COMMAND ' + json.dumps(value), flush=True)
+            encoded_raw(name, raw)
+            print('NEW105_RAW_TEXT_BEGIN ' + name + '\n' + raw.decode(errors='replace') + '\nNEW105_RAW_TEXT_END ' + name, flush=True)
+            guard('after-' + name)
+            old_cache = {item['path']: item for item in before['cache_inventory']}
+            new_cache = {item['path']: item for item in after['cache_inventory']}
+            print('NEW105_CACHE_DELTA ' + name + ' ' + json.dumps([
+                {'path': key, 'before': old_cache.get(key), 'after': new_cache.get(key)}
+                for key in sorted(old_cache.keys() | new_cache.keys()) if old_cache.get(key) != new_cache.get(key)]), flush=True)
+            if name != 'install':
+                assert before['dependency_inputs'] == after['dependency_inputs'], 'Installed module/probe inputs changed: ' + name
+            if stable:
+                assert before['immutable_runtime'] == after['immutable_runtime'], 'Consumed dependency/build/probe bytes changed: ' + name
+            return code
+
+
+        def clear_generated_cache(label):
+            before = execution_snapshot()
+            for name in ('.vite', '.vite-temp'):
+                path = Path('node_modules') / name
+                assert not path.is_symlink(), 'Refuse to clear linked cache'
+                if path.exists():
+                    assert path.is_dir() and path.resolve().parent == Path('node_modules').resolve()
+                    shutil.rmtree(path)
+            after = execution_snapshot()
+            assert before['immutable_runtime'] == after['immutable_runtime']
+            RECEIPTS.setdefault('cache_clears', []).append({'label': label, 'before': before, 'after': after})
+            print('NEW105_CACHE_CLEAR ' + label + ' ' + json.dumps({'before': before, 'after': after}), flush=True)
+            guard('after-cache-clear-' + label)
+
+
+        def probe(phase):
+            frozen = (PACKET / 'frozen-public-probe.mjs').read_bytes()
+            assert hashlib.sha256(frozen).hexdigest() == PROBE_HASH
+            Path('.new90-before.mjs').write_bytes(frozen)
+            os.environ['NEW90_REPORT'] = str(OUT / ('public-api-' + phase + '.json'))
+            before = execution_snapshot()
+            code = run('public-api-' + phase, ['node', '.new90-before.mjs'], 180)
+            after = execution_snapshot()
+            raw = Path(os.environ['NEW90_REPORT']).read_bytes()
+            encoded_raw('public-api-' + phase + '.json', raw)
+            RECEIPTS['runtime_' + phase] = {'before': before, 'after': after}
+            assert before == after, 'Full runtime including generated cache changed during frozen probe'
+            assert code in (0, 1), 'Public probe infrastructure error'
+            report = json.loads(raw)
+            assert report['node'] == 'v24.11.0' and report['vegaVersion'] == '6.4.0'
+            assert len(report['cases']) == 14 and len(report['checks']) == 42
+            Path('.new90-before.mjs').unlink()
+            return code, report
+
+
+        def coverage(phase):
+            clear_generated_cache(phase + '-coverage')
+            directory = OUT / (phase + '-coverage')
+            argv = ['./node_modules/.bin/vitest', 'run', 'test/', '--coverage.enabled',
+                    '--coverage.reporter=text', '--coverage.reporter=json-summary',
+                    '--coverage.reportsDirectory=' + str(directory)]
+            code = run(phase + '-coverage', argv, 1200)
+            path = directory / 'coverage-summary.json'
+            raw = path.read_bytes()
+            encoded_raw(phase + '-coverage-summary.json', raw)
+            report = json.loads(raw)
+            RECEIPTS[phase + '_coverage'] = report
+            assert code == 0, phase + ' coverage command failed'
+            for metric in ('statements', 'branches', 'functions', 'lines'):
+                value = report['total'][metric]
+                assert isinstance(value['total'], int) and value['total'] > 0
+                assert isinstance(value['covered'], int) and 0 <= value['covered'] <= value['total']
+                assert 0 <= value['pct'] <= 100
+            return report
+
+
+        exit_code = 2
+        try:
+            initial = guard('original-initial')
+            assert initial['tracked']['files'] == 3456
+            assert initial['tracked']['bytes'] == 111495747
+            assert initial['tracked']['sha256'] == '4d4cfe28aa98ad2a648cf80fe52635e412d060f0eaac969f06245e76aa098cb2'
+            assert git('hash-object', 'package-lock.json').decode().strip() == '741ac7f6ceea446aa88eb2006ac0611ff424be84'
+            assert run('node-version', ['node', '--version'], 30) == 0
+            assert subprocess.check_output(['node', '--version']).decode().strip() == 'v24.11.0'
+            assert run('npm-version', ['npm', '--version'], 30) == 0
+            assert run('install', ['npm', 'ci', '--no-audit', '--no-fund'], 900, stable=False) == 0
+            assert run('original-build', ['npm', 'run', 'build:only'], 900, stable=False) == 0
+            before_code, before = probe('before')
+            expected_failures = {f'{form}/{value}/{check}' for form in ('flat', 'nested')
+                                 for value in ('zero', 'false', 'empty-string')
+                                 for check in ('compiler-preserves-default', 'native-fallback')}
+            assert before_code == 1 and before['status'] == 'product-mismatch'
+            assert set(before['failures']) == expected_failures
+            assert sum(item['pass'] for item in before['checks']) == 30
+            baseline_coverage = coverage('baseline')
+            assert guard('original-final') == {**initial, 'label': 'original-final'}
+
+            patch = (PACKET / 'fix.patch').read_bytes()
+            manifest = json.loads((PACKET / 'publisher-manifest.json').read_text())
+            assert manifest['candidate_tree'] == CANDIDATE_TREE and len(manifest['files']) == 2
+            assert run('patch-check', ['git', 'apply', '--check', '-'], stdin=patch) == 0
+            subprocess.run(['git', 'apply', '--index', '-'], input=patch, check=True)
+            EXPECTED_TREE = CANDIDATE_TREE
+            candidate = guard('candidate-initial')
+            assert candidate['tracked']['files'] == 3456 and candidate['tracked']['bytes'] == 111497022
+            assert candidate['tracked']['sha256'] == 'b9077147674c83483b8ff0a944498c62b0f99c0f979b68111eda2098d9aa933e'
+            for item in manifest['files']:
+                assert hashlib.sha256(Path(item['path']).read_bytes()).hexdigest() == item['after_sha256']
+            assert run('candidate-build', ['npm', 'run', 'build:only'], 900, stable=False) == 0
+            after_code, after = probe('after')
+            assert after_code == 0 and after['status'] == 'all-controls-and-contracts-pass'
+            assert not after['failures'] and all(item['pass'] for item in after['checks'])
+            assert [item['input'] for item in before['cases']] == [item['input'] for item in after['cases']]
+            assert [item['name'] for item in before['checks']] == [item['name'] for item in after['checks']]
+            candidate_coverage = coverage('candidate')
+            comparison = {}
+            for metric in ('statements', 'branches', 'functions', 'lines'):
+                old, new = baseline_coverage['total'][metric], candidate_coverage['total'][metric]
+                comparison[metric] = {'baseline': old, 'candidate': new,
+                    'nondecreasing': new['covered'] * old['total'] >= old['covered'] * new['total']}
+            RECEIPTS['coverage_comparison'] = comparison
+            print('NEW105_COVERAGE_COMPARISON ' + json.dumps(comparison), flush=True)
+            assert all(value['nondecreasing'] for value in comparison.values()), 'Coverage regressed'
+            assert run('data', ['npm', 'run', 'data'], 300) == 0
+            assert run('browser-install', ['./node_modules/.bin/playwright', 'install', '--with-deps', 'chromium'], 900) == 0
+            # Xvfb provides the display required by the unchanged headful browser project.
+            clear_generated_cache('literal-npm-test')
+            assert run('literal-npm-test', ['xvfb-run', '-a', 'npm', 'test'], 1800) == 0
+            assert guard('candidate-final') == {**candidate, 'label': 'candidate-final'}
+            RECEIPTS['state'] = 'native-completion-results-ready-for-independent-assessment'
+            exit_code = 0
+        except Exception as error:
+            RECEIPTS['state'] = 'verification-incomplete-no-completion-claim'
+            RECEIPTS['error'] = {'type': type(error).__name__, 'message': str(error)}
+        finally:
+            RECEIPTS['exit_code'] = exit_code
+            raw = json.dumps(RECEIPTS, indent=2)
+            (OUT / 'process-receipts.json').write_text(raw + '\n')
+            print('NEW105_PROCESS_RECEIPTS_BEGIN\n' + raw + '\nNEW105_PROCESS_RECEIPTS_END', flush=True)
+        sys.exit(exit_code)
+        NEW105_PAYLOAD_3
+    - name: Verify frozen packet hashes
+      shell: bash
+      run: |
+        python3 - <<'NEW105_HASHES'
+        import hashlib,os
+        from pathlib import Path
+        p=Path(os.environ["NEW95_PACKET"])
+        expected={'fix.patch': 'e8ca38cf43a1d45da07a911f171c975b5c5edf225aa85c8d69025a8673bcf7c4', 'publisher-manifest.json': 'bd1aac774119f7cbfc03602d6c1dac6ba3e6d6c263a9137bb9e90fd9a1121a2b', 'frozen-public-probe.mjs': '6bd2cba6b62a97e2781b7557d617669d7e24d0e55a9afa5bc43b22e511a22e90', 'completion-driver.py': 'ce18f62443f6d418dbe8e521dd86d6d17da9211e610ad3e4025a8c1a55d0497c'}
+        assert {x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in p.iterdir()} == expected
+        print("NEW105_PACKET_VERIFIED", expected)
+        NEW105_HASHES
+    - name: Install display and native image prerequisites
+      shell: bash
+      run: |-
+        sudo apt-get update
+        sudo apt-get install -y xvfb xauth libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+    - name: Native original coverage candidate coverage and literal npm test
+      shell: bash
+      working-directory: target
+      run: python3 "$NEW95_PACKET/completion-driver.py"
