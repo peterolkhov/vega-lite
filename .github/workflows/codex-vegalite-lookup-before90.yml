@@ -1,0 +1,253 @@
+name: new90 unchanged Vega-Lite lookup BEFORE
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/observe-vegalite-lookup90]
+permissions:
+  contents: read
+jobs:
+  before:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: vega/vega-lite
+          ref: 220ee2c74652d686a4baf01b2d1a00c25644bd48
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.11.0
+      - name: Unchanged whole-project native evidence
+        working-directory: target
+        env:
+          CI: 'true'
+          NEW90_RECEIPTS: ${{ runner.temp }}/new90-before-receipts
+          NEW90_REPORT: ${{ runner.temp }}/new90-before-receipts/public-api-before.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .new90-before.mjs <<'NEW90_PROBE'
+          // UNEXECUTED: public whole-project compiler plus native Vega dataflow only.
+          import {writeFileSync} from 'node:fs';
+          import {compile} from './build/index.js';
+          import {View, parse, version as vegaVersion} from 'vega';
+          
+          const cases = [
+            {name: 'zero', supplied: true, value: 0, expected: 0},
+            {name: 'false', supplied: true, value: false, expected: false},
+            {name: 'empty-string', supplied: true, value: '', expected: ''},
+            {name: 'explicit-null-control', supplied: true, value: null, expected: null},
+            {name: 'omitted-control', supplied: false, expected: null},
+            {name: 'nonzero-control', supplied: true, value: 7, expected: 7},
+            {name: 'string-control', supplied: true, value: 'unknown', expected: 'unknown'},
+          ];
+          const report = {status: 'infrastructure-error', node: process.version, vegaVersion, cases: [], checks: []};
+          function check(name, pass, observed, expected) {
+            report.checks.push({name, pass, observed, expected});
+          }
+          try {
+            for (const form of ['flat', 'nested']) {
+              for (const item of cases) {
+                const transform = {
+                  lookup: 'id',
+                  from: {
+                    data: {values: [{id: 'matched', score: 42}]},
+                    key: 'id',
+                    ...(form === 'flat' ? {fields: ['score']} : {}),
+                  },
+                  as: form === 'flat' ? ['got'] : 'got',
+                  ...(item.supplied ? {default: item.value} : {}),
+                };
+                const input = {
+                  data: {values: [{id: 'matched'}, {id: 'missing'}]},
+                  transform: [transform],
+                  mark: 'text',
+                  encoding: {text: {field: 'id', type: 'nominal'}},
+                };
+                const {spec} = compile(input);
+                const lookupSources = spec.data.filter(d => (d.transform ?? []).some(t => t.type === 'lookup'));
+                if (lookupSources.length !== 1) throw new Error('Expected exactly one actual compiled lookup dataset');
+                const source = lookupSources[0];
+                const lookups = source.transform.filter(t => t.type === 'lookup');
+                if (lookups.length !== 1) throw new Error('Expected exactly one actual compiled lookup transform');
+                const emitted = lookups[0];
+                const label = `${form}/${item.name}`;
+                if (item.supplied && item.value !== null) {
+                  check(`${label}/compiler-preserves-default`,
+                    Object.hasOwn(emitted, 'default') && Object.is(emitted.default, item.value),
+                    {hasDefault: Object.hasOwn(emitted, 'default'), value: emitted.default ?? null},
+                    {hasDefault: true, value: item.value});
+                } else {
+                  check(`${label}/compiler-null-control`, !Object.hasOwn(emitted, 'default') || emitted.default === null,
+                    {hasDefault: Object.hasOwn(emitted, 'default'), value: emitted.default ?? null}, 'absent or null');
+                }
+                const view = new View(parse(spec), {renderer: 'none'});
+                let rows;
+                try {
+                  await view.runAsync();
+                  rows = view.data(source.name).map(d => ({id: d.id, got: d.got}));
+                } finally {
+                  view.finalize();
+                }
+                if (rows.length !== 2 || !rows.some(d => d.id === 'matched') || !rows.some(d => d.id === 'missing')) {
+                  throw new Error('Native dataflow did not retain both ordinary input rows');
+                }
+                const match = rows.find(d => d.id === 'matched').got;
+                const missing = rows.find(d => d.id === 'missing').got;
+                check(`${label}/matched-control`, form === 'flat' ? match === 42 : match?.id === 'matched' && match?.score === 42,
+                  match, form === 'flat' ? 42 : {id: 'matched', score: 42});
+                check(`${label}/native-fallback`, Object.is(missing, item.expected), missing, item.expected);
+                report.cases.push({label, input, emittedLookup: emitted, lookupDataset: source.name, nativeRows: rows});
+              }
+            }
+            report.failures = report.checks.filter(c => !c.pass).map(c => c.name);
+            report.status = report.failures.length ? 'product-mismatch' : 'all-controls-and-contracts-pass';
+            process.exitCode = report.failures.length ? 1 : 0;
+          } catch (error) {
+            report.error = {name: error.name, message: error.message, stack: error.stack};
+            process.exitCode = 2;
+          } finally {
+            const raw = JSON.stringify(report, null, 2);
+            writeFileSync(process.env.NEW90_REPORT, raw + '\n');
+            console.log('NEW90_RAW_JSON_BEGIN\n' + raw + '\nNEW90_RAW_JSON_END');
+          }
+          NEW90_PROBE
+          cat > .new90-driver.py <<'NEW90_DRIVER'
+          """UNEXECUTED hosted-only driver; run from an exact whole upstream checkout."""
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import stat
+          import subprocess
+          import sys
+          import time
+          
+          PIN = '220ee2c74652d686a4baf01b2d1a00c25644bd48'
+          TREE = 'd1067e4185fbea511ea89e789ff6e3cf8803a17e'
+          OUT = Path(os.environ['NEW90_RECEIPTS']).resolve()
+          OUT.mkdir(parents=True, exist_ok=True)
+          receipts = {'pin': PIN, 'tree': TREE, 'commands': [], 'guards': []}
+          
+          
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          
+          
+          def digest_records(records):
+              digest = hashlib.sha256()
+              count = total = 0
+              for name, mode, data in records:
+                  for part in (name, mode, str(len(data)).encode(), data):
+                      digest.update(len(part).to_bytes(8, 'big'))
+                      digest.update(part)
+                  count += 1
+                  total += len(data)
+              return {'sha256': digest.hexdigest(), 'files': count, 'bytes': total}
+          
+          
+          def source_guard(label):
+              assert git('rev-parse', 'HEAD').decode().strip() == PIN
+              assert git('rev-parse', 'HEAD^{tree}').decode().strip() == TREE
+              assert git('write-tree').decode().strip() == TREE
+              subprocess.run(['git', 'diff', '--exit-code', '--no-ext-diff', 'HEAD'], check=True)
+              subprocess.run(['git', 'diff', '--cached', '--exit-code', '--no-ext-diff'], check=True)
+              index = git('ls-files', '--stage', '-z')
+              records = []
+              for entry in index.split(b'\0'):
+                  if not entry:
+                      continue
+                  meta, raw_path = entry.split(b'\t', 1)
+                  mode, blob, stage = meta.split()
+                  assert stage == b'0'
+                  path = Path(os.fsdecode(raw_path))
+                  if mode == b'120000':
+                      assert path.is_symlink()
+                      data = os.fsencode(os.readlink(path))
+                  else:
+                      assert mode in (b'100644', b'100755'), 'Unsupported gitlink or file mode'
+                      assert path.is_file() and not path.is_symlink()
+                      assert bool(path.stat().st_mode & stat.S_IXUSR) == (mode == b'100755')
+                      data = path.read_bytes()
+                  actual_blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest().encode()
+                  assert actual_blob == blob, 'Actual tracked bytes differ from original Git blob: ' + str(path)
+                  records.append((raw_path, mode, data))
+              value = {'label': label, 'tracked': digest_records(records), 'index_sha256': hashlib.sha256(index).hexdigest()}
+              receipts['guards'].append(value)
+              print('NEW90_SOURCE_GUARD ' + json.dumps(value), flush=True)
+              return value
+          
+          
+          def runtime_snapshot():
+              paths = sorted([Path('.new90-before.mjs'), *Path('build').rglob('*'), *Path('node_modules').rglob('*')])
+              records = []
+              for path in paths:
+                  if path.is_symlink():
+                      records.append((os.fsencode(path), b'link', os.fsencode(os.readlink(path))))
+                  elif path.is_file():
+                      records.append((os.fsencode(path), b'file', path.read_bytes()))
+              return digest_records(records)
+          
+          
+          def run(name, argv, timeout):
+              started = time.time()
+              log_path = OUT / (name + '.log')
+              with log_path.open('wb') as stream:
+                  try:
+                      result = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout, env=os.environ.copy())
+                      code = result.returncode
+                  except subprocess.TimeoutExpired:
+                      code = 124
+              raw = log_path.read_bytes()
+              row = {'name': name, 'argv': argv, 'exit_code': code, 'seconds': round(time.time() - started, 3),
+                     'log_sha256': hashlib.sha256(raw).hexdigest(), 'log_bytes': len(raw)}
+              receipts['commands'].append(row)
+              print('NEW90_COMMAND ' + json.dumps(row), flush=True)
+              print('NEW90_LOG_BEGIN ' + name + '\n' + raw.decode(errors='replace') + '\nNEW90_LOG_END ' + name, flush=True)
+              source_guard('after-' + name)
+              return code
+          
+          
+          exit_code = 2
+          try:
+              initial = source_guard('before-install')
+              assert Path('package-lock.json').stat().st_size == 378703
+              assert git('hash-object', 'package-lock.json').decode().strip() == '741ac7f6ceea446aa88eb2006ac0611ff424be84'
+              assert run('versions', ['node', '--version'], 30) == 0
+              assert subprocess.check_output(['node', '--version']).decode().strip() == 'v24.11.0'
+              assert run('npm-version', ['npm', '--version'], 30) == 0
+              assert run('install', ['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], 600) == 0
+              assert run('whole-project-build', ['npm', 'run', 'build:only'], 600) == 0
+              assert run('original-focused-tests', ['./node_modules/.bin/vitest', 'run', '--project', 'unit',
+                  'test/compile/data/lookup.test.ts', 'test/compile/selection/parse.test.ts'], 240) == 0
+              runtime_before = runtime_snapshot()
+              receipts['runtime_before'] = runtime_before
+              print('NEW90_RUNTIME_BEFORE ' + json.dumps(runtime_before), flush=True)
+              result = run('public-api-before', ['node', '.new90-before.mjs'], 120)
+              runtime_after = runtime_snapshot()
+              receipts['runtime_after'] = runtime_after
+              print('NEW90_RUNTIME_AFTER ' + json.dumps(runtime_after), flush=True)
+              assert runtime_before == runtime_after, 'Installed dependency, build output, or probe bytes changed during native checks'
+              assert source_guard('final') == {**initial, 'label': 'final'}
+              assert result in (0, 1), 'Probe infrastructure failed; no product reproduction established'
+              report = json.loads(Path(os.environ['NEW90_REPORT']).read_text())
+              assert len(report['cases']) == 14 and len(report['checks']) == 42
+              assert report['status'] in ('product-mismatch', 'all-controls-and-contracts-pass')
+              receipts['probe_json_sha256'] = hashlib.sha256(Path(os.environ['NEW90_REPORT']).read_bytes()).hexdigest()
+              receipts['state'] = 'native-result-ready-for-independent-assessment'
+              exit_code = result
+          except Exception as error:
+              receipts['state'] = 'infrastructure-error-no-reproduction-claim'
+              receipts['error'] = {'type': type(error).__name__, 'message': str(error)}
+          finally:
+              receipts['exit_code'] = exit_code
+              raw = json.dumps(receipts, indent=2)
+              (OUT / 'process-receipts.json').write_text(raw + '\n')
+              print('NEW90_PROCESS_RECEIPTS_BEGIN\n' + raw + '\nNEW90_PROCESS_RECEIPTS_END', flush=True)
+          sys.exit(exit_code)
+          NEW90_DRIVER
+          printf '%s\n' '6bd2cba6b62a97e2781b7557d617669d7e24d0e55a9afa5bc43b22e511a22e90  .new90-before.mjs' '5937fe121fe2a820869d3d299ab9845d56f93ee3f8a394562ee36e8e926033b8  .new90-driver.py' | sha256sum -c -
+          python3 .new90-driver.py
