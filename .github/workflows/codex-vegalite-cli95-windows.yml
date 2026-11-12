@@ -36,6 +36,27 @@ jobs:
         run: |
           echo "NEW95_PACKET=$RUNNER_TEMP/new95-packet" >> "$GITHUB_ENV"
           echo "NEW95_RECEIPTS=$RUNNER_TEMP/new95-cli-receipts" >> "$GITHUB_ENV"
+      - name: Diagnose Windows source representation before guarded execution
+        shell: bash
+        working-directory: target
+        run: |
+          python3 - <<'WINDOWS_SOURCE_REPRESENTATION'
+          import os, subprocess, hashlib, json
+          from pathlib import Path
+          print('WINDOWS_GIT_SYMLINKS', subprocess.check_output(['git','config','--show-origin','--get','core.symlinks']).decode().strip())
+          mismatches=[]
+          for entry in subprocess.check_output(['git','ls-files','--stage','-z']).split(b'\0'):
+              if not entry: continue
+              meta, name=entry.split(b'\t',1); mode, blob, stage=meta.split(); path=Path(os.fsdecode(name))
+              if path.is_symlink():
+                  value=os.readlink(path); data=os.fsencode(value)
+              else:
+                  value=None; data=path.read_bytes()
+              actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest().encode()
+              if actual!=blob or mode==b'120000':
+                  mismatches.append({'path':str(path),'mode':mode.decode(),'is_symlink':path.is_symlink(),'readlink':value,'expected_blob':blob.decode(),'actual_blob':actual.decode(),'bytes':len(data),'mismatch':actual!=blob})
+          print('WINDOWS_SOURCE_REPRESENTATION '+json.dumps(mismatches))
+          WINDOWS_SOURCE_REPRESENTATION
       - name: Create packet directory
         shell: bash
         run: mkdir -p "$NEW95_PACKET"
